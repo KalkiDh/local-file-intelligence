@@ -5,55 +5,52 @@ import glob
 import pandas as pd
 import pdfplumber
 
-def load_files_from_directory(directory_path):
-    combined_context = ""
-    file_count = 0
+def read_file_content(file_path):
+    """
+    Helper to read a single file based on extension.
+    Used by the Deep Summarizer to re-read large files.
+    """
+    filename = os.path.basename(file_path)
+    content = ""
     
+    try:
+        if filename.endswith(('.txt', '.md', '.py', '.json', '.log')):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+        elif filename.endswith('.csv'):
+            df = pd.read_csv(file_path)
+            row_count = len(df)
+            columns = ", ".join(df.columns.tolist())
+            table_text = df.to_markdown(index=False)
+            content = f"Metadata:\n- Type: CSV Data\n- Total Rows: {row_count}\n- Columns: {columns}\n\nData Table:\n{table_text}"
+
+        elif filename.endswith('.pdf'):
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    extracted = page.extract_text()
+                    if extracted:
+                        content += extracted + "\n"
+        
+        return content
+    except Exception as e:
+        return f"Error reading file: {e}"
+
+def load_files_raw(directory_path):
+    """
+    Scans directory and uses read_file_content for each file.
+    """
     files = glob.glob(os.path.join(directory_path, "*"))
     print(f"📂 Scanning {directory_path}...")
+    
+    loaded_files = []
 
     for file_path in files:
         filename = os.path.basename(file_path)
-        content = ""
-        
-        try:
-            # 1. Handle Text / Code / Logs
-            if filename.endswith(('.txt', '.md', '.py', '.json', '.log')):
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+        content = read_file_content(file_path)
+        if content and not content.startswith("Error"):
+            loaded_files.append((filename, content))
+        else:
+            print(f"   ❌ Skipped {filename}")
 
-            # 2. Handle CSV (Improved Formatting)
-            elif filename.endswith('.csv'):
-                df = pd.read_csv(file_path)
-                # Add columns summary
-                columns = ", ".join(df.columns)
-                # Convert to markdown with explicit headers
-                csv_text = df.head(50).to_markdown(index=False)
-                content = f"Columns: {columns}\nRow Count: {len(df)}\n\n{csv_text}"
-                if len(df) > 50:
-                    content += "\n... (Remaining rows truncated for brevity)"
-
-            # 3. Handle PDF (Cleaner Extraction)
-            elif filename.endswith('.pdf'):
-                with pdfplumber.open(file_path) as pdf:
-                    for page in pdf.pages:
-                        extracted = page.extract_text()
-                        if extracted:
-                            # Clean up excessive newlines
-                            cleaned_text = "\n".join([line.strip() for line in extracted.split('\n') if line.strip()])
-                            content += cleaned_text + "\n"
-            else:
-                continue
-
-            # Add clear delimiters for the LLM
-            combined_context += f"\n{'='*20}\n📄 FILE: {filename}\n{'='*20}\n{content}\n"
-            file_count += 1
-            print(f"   ✅ Loaded: {filename}")
-
-        except Exception as e:
-            print(f"   ❌ Error loading {filename}: {e}")
-
-    return combined_context, file_map_placeholder, file_count
-
-# Placeholder since we removed the map logic for Pure RAG
-file_map_placeholder = {}
+    return loaded_files
