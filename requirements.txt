@@ -1,0 +1,7 @@
+ollama
+pandas
+pdfplumber
+tabulate
+openpyxl
+chromadb
+sentence-transformers
