@@ -4,6 +4,8 @@ import argparse
 import sys
 import time
 import threading
+import os
+from datetime import datetime
 from core.agent import Agent
 from core.hybrid_manager import HybridContextManager
 from core.summarizer import DeepSummarizer
@@ -19,6 +21,22 @@ def spinner(stop_event):
         time.sleep(0.1)
         i += 1
     sys.stdout.write("\r" + " " * 20 + "\r")
+
+def save_session(history, filename="session_report.txt"):
+    """Saves the chat history to a file."""
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(f"=== 🧠 Local File Intelligence Report ===\n")
+            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"=========================================\n\n")
+            
+            for turn in history:
+                f.write(f"👤 USER ({turn['context']}):\n{turn['question']}\n\n")
+                f.write(f"🤖 AI:\n{turn['answer']}\n")
+                f.write("-" * 40 + "\n\n")
+        return f"✅ Session saved to '{filename}'"
+    except Exception as e:
+        return f"❌ Error saving file: {e}"
 
 def main():
     parser = argparse.ArgumentParser(description="Local Hybrid RAG System")
@@ -48,20 +66,24 @@ def main():
     print("ℹ️  Commands:")
     print("   :files        → List all loaded files")
     print("   :focus [name] → Lock chat to a specific file")
-    print("   :deep [name]  → 🧠 Deep Map-Reduce Summary (Slow but detailed)")
+    print("   :deep [name]  → 🧠 Deep Map-Reduce Summary")
+    print("   :save [name]  → 💾 Save chat history to .txt file")
     print("   :all          → Return to global mode")
     print("   exit          → Quit")
     print("-" * 50)
     
     current_focus = None 
+    chat_history = [] # <--- Stores the session
 
     # 4. Chat Loop
     while True:
         try:
             if current_focus:
-                prompt_text = f"\n🔒 [{current_focus}] You: "
+                prompt_context = f"[{current_focus}]"
+                prompt_text = f"\n🔒 {prompt_context} You: "
             else:
-                prompt_text = "\n🌍 [Global] You: "
+                prompt_context = "[Global]"
+                prompt_text = f"\n🌍 {prompt_context} You: "
                 
             user_input = input(prompt_text).strip()
             
@@ -69,6 +91,7 @@ def main():
 
             # --- COMMAND HANDLING ---
             if user_input.lower() in ["exit", "quit"]:
+                # Auto-save option on exit could go here
                 break
             
             if user_input.lower() == ":files":
@@ -82,21 +105,28 @@ def main():
                 print("🌍 Switched to Global Mode.")
                 continue
 
-            # --- FIXED FOCUS LOGIC ---
+            # --- SAVE COMMAND ---
+            if user_input.lower().startswith(":save"):
+                filename = user_input.replace(":save", "").strip()
+                if not filename:
+                    filename = f"report_{int(time.time())}.txt"
+                if not filename.endswith(".txt"):
+                    filename += ".txt"
+                
+                print(save_session(chat_history, filename))
+                continue
+
+            # --- FOCUS LOGIC ---
             if user_input.lower().startswith(":focus"):
                 target = user_input.replace(":focus", "").strip()
-                
-                # Combine both lists and search safely
                 all_files = list(manager.small_files.keys()) + manager.large_files
-                
-                # Find first file containing the search term (case-insensitive)
                 match = next((f for f in all_files if target.lower() in f.lower()), None)
                 
                 if match:
                     current_focus = match
                     print(f"🔒 Focused on '{current_focus}'.")
                 else:
-                    print(f"❌ File matching '{target}' not found. Type :files to check names.")
+                    print(f"❌ File matching '{target}' not found.")
                 continue
 
             # --- DEEP SUMMARY ---
@@ -107,9 +137,14 @@ def main():
                 
                 if match:
                     print(f"🧠 Starting Deep Summary for: {match}")
-                    print("   (This involves reading the whole file and may take time...)")
                     result = deep_summarizer.summarize_file(args.files, match)
                     print(f"\n{result}")
+                    # Log Deep Summary
+                    chat_history.append({
+                        "context": f"DEEP SUMMARY - {match}",
+                        "question": ":deep command",
+                        "answer": result
+                    })
                 else:
                     print(f"❌ File matching '{target}' not found.")
                 continue
@@ -126,6 +161,13 @@ def main():
             t.join()
             
             print(f"{response}")
+            
+            # Log the turn
+            chat_history.append({
+                "context": prompt_context,
+                "question": user_input,
+                "answer": response
+            })
 
         except KeyboardInterrupt:
             print("\n👋 Goodbye!")
